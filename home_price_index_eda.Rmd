@@ -1,0 +1,142 @@
+---
+title: "housing price index eda for EJW"
+author: "Hongjie Wang"
+date: "April 24, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We show an example of getting data from web, perform some EDA. As a demontration for EJW. 
+
+First, we load some packages
+```{r packges}
+rm(list = ls())
+library(rvest)
+library(tidyverse)
+library(ggplot2)
+library(GGally)
+```
+
+We first obtain data from a table embedded in HTML page
+We use the functions in rvest package for this step.
+
+```{r scape}
+data_url<-"https://wiki.socr.umich.edu/index.php/SOCR_Data_Dinov_091609_SnP_HomePriceIndex"
+wiki_url<- read_html(data_url)
+
+mydata<-wiki_url%>% 
+  html_node("table")%>%
+  html_table()
+
+```
+
+Some high level summary of the data to make sure all the types 
+are correct. 
+
+```{r first}
+str(mydata)
+head(mydata,10)
+tail(mydata,5)
+summary(mydata)
+```
+We replace the year and month with a date field.
+
+```{r date}
+temp=seq(as.Date('1991-01-01'),as.Date('2009-06-01'),by='month')
+mydata<-mydata%>%
+  mutate(date_field=temp)%>%
+  select(-Year,-Month)
+head(mydata)
+```
+
+we change the data from wide format to long format so that
+we can plot price curves by location 
+
+```{r longplot}
+mydata%>%
+  select(-Index)%>%
+  gather(-date_field,key="market",value="Price")%>%
+  ggplot(aes(x=date_field, y=Price, color=market)) +
+geom_line(size=1.5) + ggtitle("HomePriceIndex:1991-2009")
+
+  
+```
+
+we change the data from wide format to long format so that
+we can plot price curves by location 
+
+```{r relations}
+subset<-mydata[,10:15]
+ggpairs(subset)
+
+```
+
+
+We can examine one particular market (Boston) more closely
+
+```{r boston}
+boston<-mydata$`MA-Boston`
+
+summary(boston)
+
+#standard deviation
+sd(boston)
+
+plot(density(boston))
+
+```
+
+
+Let's examine the relationship between San Francisco Los Angeles more closely.
+
+```{r cfvsla}
+CA<-mydata%>%
+  select(contains("CA-"))
+
+head(CA)
+
+colnames(CA)<-c("LA","SD","SF")
+
+mymodel<-lm(SF~LA,data=CA)
+summary(mymodel)
+
+CA$pred_sf = predict(mymodel,data=CA)
+
+ggplot(data=CA, aes(x = LA)) +
+geom_point(aes(y = SF)) +
+geom_line(aes(y = pred_sf), color='Magenta', size=2) +
+ggtitle("PredictHomeIndex SF - LA")
+
+  
+```
+
+Final example, we want to see if the relationship between SF and LA change over time. Although not applicable, but this is the same concept as in pair trade in stock. If you have two stocks A and B and you believe their price relationship in the long-term should be stable. If you then a significant deviation of one stock's price, you could buy or sell, in anticipation of the relationship going back to normal in the near future. 
+
+```{r evolve}
+
+mydata<-mydata%>%
+  select(`CA-SanFrancisco`,`CA-LosAngeles`,date_field)%>%
+  rename(SF=`CA-SanFrancisco`,LA=`CA-LosAngeles`)
+
+
+model_intercepts<-numeric(11)
+model_beta<-numeric(11)
+for (i in 1:11){
+  temp<-mydata[(i-1)*20+1:i*20,]
+  mymodel<-lm(SF~LA,data=temp)
+  model_intercepts[i]<-mymodel$coefficients[1]
+  model_beta[i]<-mymodel$coefficients[2]
+}
+
+
+par(mfrow=c(2,2)) 
+plot(model_intercepts)
+plot(model_beta)
+plot(model_intercepts,model_beta)
+
+
+
+```
